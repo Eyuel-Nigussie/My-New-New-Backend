@@ -23,7 +23,9 @@ class Recipe(Base):
     picture = Column(String, nullable=True, server_default='https://southernspicesrestaurant.com/img/placeholders/comfort_food_placeholder.png')
     cooking_time = Column(String, nullable=True)
     collection = Column(String, nullable=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    
+    steps = relationship("Step", backref="recipes", cascade='all, delete-orphan')
 #3  
 class Ingredient(Base):
     __tablename__ = 'ingredients'
@@ -62,8 +64,8 @@ class Step(Base):
     __tablename__ = 'steps'
     
     id = Column(Integer, primary_key=True, nullable=False)
-    recipe_id = Column(Integer, ForeignKey("ingredients.id", ondelete="CASCADE"), nullable=False)
-    step_number = Column(String, nullable=False)
+    recipe_id = Column(Integer, ForeignKey("recipes.id", ondelete="CASCADE"), nullable=False)
+    step_number = Column(String, nullable=False) 
     description = Column(String, nullable=False)
 
 #8 J
