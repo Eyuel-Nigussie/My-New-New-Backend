@@ -36,7 +36,33 @@ def get_recipes(db: Session = Depends(get_db), user_id: int = Depends(oauth2.get
     recipes = db.query(models.Recipe).all()
     return recipes
 
+#get the ingredients of a recipe
 @router.get("/ingredients/{id}")
-def get_recipes(db: Session = Depends(get_db), user_id: int = Depends(oauth2.get_current_user) ):
-    recipes = db.query(models.Recipe).all()
-    return recipes
+def get_recipes(id: int, db: Session = Depends(get_db), user_id: int = Depends(oauth2.get_current_user) ):
+    query = db.query(models.Recipe_Ingredient, models.Recipe, models.Ingredient)\
+             .filter(models.Recipe.id == id)\
+             .join(models.Recipe, models.Recipe.id == models.Recipe_Ingredient.recipe_id)\
+             .join(models.Ingredient, models.Ingredient.id == models.Recipe_Ingredient.ingredients_id)
+    
+    results = [] # to store the results
+
+    #loop through the query results and add them to the results
+    for recipe_ingredient, recipe, ingredient in query:
+       results.append({
+          'recipe_id': recipe.id,
+          'recipe_name': recipe.name,
+          'ingredient_id': ingredient.id,
+          'ingredient_name': ingredient.name,
+          'quantity': recipe_ingredient.quantity,
+          'unit': recipe_ingredient.unit
+       })
+
+    if not results:
+      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ingredients for recipe with id{id} does not exits")
+    #return the results as a json object
+    return  {'results': results}
+
+
+
+             
+   
