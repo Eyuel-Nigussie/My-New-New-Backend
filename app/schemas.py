@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict
 
 #===========user schema =================
 class UserCreate(BaseModel): 
@@ -31,12 +31,12 @@ class TokenData(BaseModel):
 
 
 #=========== recipe schema =================
-class RecipeCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    cooking_time: Optional[str] = None
-    collection: str = None
-    picture: Optional[str] = None
+# class RecipeCreate(BaseModel):
+#     name: str
+#     description: Optional[str] = None
+#     cooking_time: Optional[str] = None
+#     collection: str = None
+#     picture: Optional[str] = None
 
 
 #========== Ingredient schema =================================
@@ -51,13 +51,40 @@ class IngredientOut(BaseModel):  #return response
    class Config:
     orm_mode = True
 
-class Recipes(BaseModel):
-   id: int
-   name: str
-   description: str
-   cooking_time: str
-   collection: str
-   picture: str
-   
-   class Config:
-    orm_mode = True
+#recipe create
+class RecipeCreate(BaseModel):
+    name: str
+    description: str
+    cooking_time: int
+    collection: str
+    picture: str
+    class Config:
+      orm_mode = True
+
+    # name: str
+    # description: Optional[str] = None
+    # cooking_time: Optional[str] = None
+    # collection: str = None
+    # picture: Optional[str] = None 
+    
+
+
+class RecipeIngredients(BaseModel):
+    recipe: RecipeCreate
+    ingredient_ids: List[int]
+    class Config:
+      orm_mode = True
+
+# class IngredientCreate(BaseModel):
+#    name: str
+#    carbs: float
+#    protein: float
+#    fat: float
+#    calorie: float
+#    class Config:
+#        orm_mode = True
+
+
+class RecipeCreateWithIngredients(BaseModel):
+    ingredient_ids: List[int]
+  
