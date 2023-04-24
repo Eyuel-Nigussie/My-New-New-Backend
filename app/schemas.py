@@ -51,16 +51,29 @@ class IngredientOut(BaseModel):  #return response
    class Config:
     orm_mode = True
 
+class IngredientCreate(BaseModel):
+    name: str
+    carbs: float
+    protein: float
+    fat: float
+    calory: float
+    user_id: int = None
+
+class RecipeIngredientCreate(BaseModel):
+    ingredient_id: int
+    quantity: float
+    unit: str
+
 #recipe create
 class RecipeCreate(BaseModel):
     name: str
-    description: str
-    cooking_time: int
-    collection: str
-    picture: str
-    class Config:
-      orm_mode = True
+    description: str = None
+    picture: str = None
+    cooking_time: str = None
+    collection: str = None
+    user_id: int
 
+    ingredients: list[RecipeIngredientCreate]
     # name: str
     # description: Optional[str] = None
     # cooking_time: Optional[str] = None
@@ -68,12 +81,6 @@ class RecipeCreate(BaseModel):
     # picture: Optional[str] = None 
     
 
-
-class RecipeIngredients(BaseModel):
-    recipe: RecipeCreate
-    ingredient_ids: List[int]
-    class Config:
-      orm_mode = True
 
 # class IngredientCreate(BaseModel):
 #    name: str
