@@ -26,6 +26,7 @@ class Recipe(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     
     steps = relationship("Step", backref="recipes", cascade='all, delete-orphan')
+    ingredients = relationship("Recipe_Ingredient", back_populates="recipe")
 #3  
 class Ingredient(Base):
     __tablename__ = 'ingredients'
@@ -36,8 +37,9 @@ class Ingredient(Base):
     protein = Column(Float)
     fat = Column(Float)
     calory = Column(Float)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)    
-
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+        
+    recipe_ingredients = relationship("Recipe_Ingredient", back_populates="ingredient")
 #4
 class Shopping(Base):
     __tablename__ ='shopping'
@@ -74,8 +76,8 @@ class Recipe_Ingredient(Base):
 
     recipe_id = Column(Integer, ForeignKey("recipes.id", ondelete="CASCADE"),primary_key=True, nullable=False)
     ingredients_id = Column(Integer, ForeignKey("ingredients.id", ondelete="CASCADE"),primary_key=True, nullable=False)
-    recipe = relationship(Recipe, backref="recipe_ingredients")
-    ingredient = relationship(Ingredient, backref="recipe_ingredients")
+    recipe = relationship("Recipe", back_populates="ingredients") 
+    ingredient = relationship("Ingredient", back_populates="recipe_ingredients")
     
     quantity = Column(Float)
     unit = Column(String)
