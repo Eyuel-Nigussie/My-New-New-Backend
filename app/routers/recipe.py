@@ -7,14 +7,20 @@ from typing import List
 from pydantic import BaseModel
 
 
-from ..models import Recipe, Recipe_Ingredient, Ingredient, Step
+from ..models import Recipe, Recipe_Ingredient, Ingredient, Step, Shopping
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from celery import Celery
+from fastapi import BackgroundTasks
+from time import sleep
+from ..oauth2 import get_current_user
+from ..utils import send_email
 # Create a SQLAlchemy engine and sessionmaker
 engine = create_engine("postgresql://user:password@localhost/mydatabase")
 Session = sessionmaker(bind=engine)
-
+# celery = Celery(__name__)  # 
+celery = Celery('myapp', broker='pyamqp://guest@localhost//', backend='redis://localhost:6379/0')
 class RecipeCreate(BaseModel):
     name: str
     description: str = None
@@ -34,6 +40,17 @@ router = APIRouter(
    prefix="/recipes",
     tags=["recipes"]
 )
+
+@celery.task 
+def send_success_email(sender_email: str, recipient_email: str, recipe_name: str):
+    from_email = sender_email
+    to_email = recipient_email
+    subject = "Success! Your recipe has been added to the database."
+    body = f"Congratulations! Your recipe {recipe_name} has been successfully added to the database."
+    send_email(from_email, to_email, subject, body)
+
+def send_success_email(user_email: str, recipe_name: str):
+    send_email(user_email, f"Success! Your recipe {recipe_name} has been added to the database.")
 
 
 # @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -180,8 +197,6 @@ async def create_recipe(recipe: dict = Body(...), db: Session = Depends(get_db))
 
              
 
-
-
 #Post Recipe
 @router.post("/recipes/")
 def create_recipe(recipe_data: dict = Body(...), db: Session = Depends(get_db), current_user = Depends(oauth2.get_current_user)):
@@ -227,6 +242,14 @@ def create_recipe(recipe_data: dict = Body(...), db: Session = Depends(get_db), 
     db.commit()
     db.refresh(new_recipe)
 
+
+    # Send success email
+    sender_email = "eyuthedev@gmail.com"
+    # recipient_email = current_user.username
+    print(current_user)
+    recipient_email = "eyuelnigussie2@gmail.com"
+    max = send_success_email.delay(sender_email, recipient_email, new_recipe.name)
+    print(max)
     # Return the newly created recipe
     return new_recipe
 
@@ -347,158 +370,252 @@ async def get_recipe(recipe_id: int, db: Session = Depends(get_db)):
     return recipe_dict
 
 
-@router.get("/dinner")
-async def get_dinner_recipes(db: Session = Depends(get_db)):
-    # Retrieve all Recipe objects where collection is equal to "dinner"
-    recipes = db.query(Recipe).filter(Recipe.collection == "dinner").all()
+@router.delete("/{recipe_id}")
+def delete_recipe(recipe_id: int, db: Session = Depends(get_db), current_user = Depends(oauth2.get_current_user)):
+    # Retrieve the Recipe object by id
+    recipe = db.query(Recipe).filter(Recipe.id == recipe_id).first()
 
-    # Create a list to hold serialized recipe dictionaries
-    recipe_list = []
+    # If the Recipe object doesn't exist, raise an HTTPException
+    if not recipe:
+        raise HTTPException(status_code=404, detail=f"Recipe with id {recipe_id} not found")
+    print(repr(recipe.user_id))
+    print(repr(current_user.id))
+    # If the Recipe object's user_id doesn't match the current user's id, raise an HTTPException
+    if recipe.user_id != int(current_user.id):
+        raise HTTPException(status_code=403, detail="You do not have permission to delete this recipe")
 
-    # Loop through each recipe
-    for recipe in recipes:
-        # Retrieve the Recipe_Ingredient objects for the recipe
-        recipe_ingredients = recipe.ingredients
+    # Delete the related Recipe_Ingredient objects
+    db.query(Recipe_Ingredient).filter(Recipe_Ingredient.recipe_id == recipe_id).delete()
 
-        # Retrieve the Step objects for the recipe
-        steps = recipe.steps
+    # Delete the related Step objects
+    db.query(Step).filter(Step.recipe_id == recipe_id).delete()
 
-        # Serialize the Recipe object and its related objects to a dictionary
-        recipe_dict = recipe.__dict__
-        recipe_dict['ingredients'] = [ri.ingredient.__dict__ for ri in recipe_ingredients]
-        recipe_dict['steps'] = [step.__dict__ for step in steps]
+    # Delete the Recipe object
+    db.delete(recipe)
 
-        # Remove unwanted attributes from the dictionary
-        del recipe_dict['_sa_instance_state']
+    db.commit()
 
-        # Append the serialized recipe dictionary to the list
-        recipe_list.append(recipe_dict)
-
-    # Return the list of serialized recipe dictionaries as a JSON response
-    return recipe_list
+    # Return a success message
+    return {"message": f"Recipe with id {recipe_id}, its corresponding Recipe_Ingredient objects, and Steps have been deleted"}
 
 
-@router.get("/dinner/count")
-async def get_dinner_recipes_count(db: Session = Depends(get_db)):
-    # Retrieve all Recipe objects where collection is equal to "dinner"
-    recipes = db.query(Recipe).filter(Recipe.collection == "dinner").all()
+# @router.get("/dinner")
+# async def get_dinner_recipes(db: Session = Depends(get_db)):
+#     # Retrieve all Recipe objects where collection is equal to "dinner"
+#     recipes = db.query(Recipe).filter(Recipe.collection == "dinner").all()
 
-    # Return the count of the recipes where collection is equal to "dinner"
-    return len(recipes)
+#     # Create a list to hold serialized recipe dictionaries
+#     recipe_list = []
 
+#     # Loop through each recipe
+#     for recipe in recipes:
+#         # Retrieve the Recipe_Ingredient objects for the recipe
+#         recipe_ingredients = recipe.ingredients
 
-@router.get("/supper")
-async def get_dinner_recipes(db: Session = Depends(get_db)):
-    # Retrieve all Recipe objects where collection is equal to "dinner"
-    recipes = db.query(Recipe).filter(Recipe.collection == "supper").all()
+#         # Retrieve the Step objects for the recipe
+#         steps = recipe.steps
 
-    # Create a list to hold serialized recipe dictionaries
-    recipe_list = []
+#         # Serialize the Recipe object and its related objects to a dictionary
+#         recipe_dict = recipe.__dict__
+#         recipe_dict['ingredients'] = [ri.ingredient.__dict__ for ri in recipe_ingredients]
+#         recipe_dict['steps'] = [step.__dict__ for step in steps]
 
-    # Loop through each recipe
-    for recipe in recipes:
-        # Retrieve the Recipe_Ingredient objects for the recipe
-        recipe_ingredients = recipe.ingredients
+#         # Remove unwanted attributes from the dictionary
+#         del recipe_dict['_sa_instance_state']
 
-        # Retrieve the Step objects for the recipe
-        steps = recipe.steps
+#         # Append the serialized recipe dictionary to the list
+#         recipe_list.append(recipe_dict)
 
-        # Serialize the Recipe object and its related objects to a dictionary
-        recipe_dict = recipe.__dict__
-        recipe_dict['ingredients'] = [ri.ingredient.__dict__ for ri in recipe_ingredients]
-        recipe_dict['steps'] = [step.__dict__ for step in steps]
-
-        # Remove unwanted attributes from the dictionary
-        del recipe_dict['_sa_instance_state']
-
-        # Append the serialized recipe dictionary to the list
-        recipe_list.append(recipe_dict)
-
-    # Return the list of serialized recipe dictionaries as a JSON response
-    return recipe_list
-
-@router.get("/supper/count")
-async def get_dinner_recipes_count(db: Session = Depends(get_db)):
-    # Retrieve all Recipe objects where collection is equal to "dinner"
-    recipes = db.query(Recipe).filter(Recipe.collection == "supper").all()
-
-    # Return the count of the recipes where collection is equal to "dinner"
-    return len(recipes)
+#     # Return the list of serialized recipe dictionaries as a JSON response
+#     return recipe_list
 
 
-@router.get("/lunch")
-async def get_dinner_recipes(db: Session = Depends(get_db)):
-    # Retrieve all Recipe objects where collection is equal to "dinner"
-    recipes = db.query(Recipe).filter(Recipe.collection == "lunch").all()
+# @router.get("/dinner/count")
+# async def get_dinner_recipes_count(db: Session = Depends(get_db)):
+#     # Retrieve all Recipe objects where collection is equal to "dinner"
+#     recipes = db.query(Recipe).filter(Recipe.collection == "dinner").all()
 
-    # Create a list to hold serialized recipe dictionaries
-    recipe_list = []
-
-    # Loop through each recipe
-    for recipe in recipes:
-        # Retrieve the Recipe_Ingredient objects for the recipe
-        recipe_ingredients = recipe.ingredients
-
-        # Retrieve the Step objects for the recipe
-        steps = recipe.steps
-
-        # Serialize the Recipe object and its related objects to a dictionary
-        recipe_dict = recipe.__dict__
-        recipe_dict['ingredients'] = [ri.ingredient.__dict__ for ri in recipe_ingredients]
-        recipe_dict['steps'] = [step.__dict__ for step in steps]
-
-        # Remove unwanted attributes from the dictionary
-        del recipe_dict['_sa_instance_state']
-
-        # Append the serialized recipe dictionary to the list
-        recipe_list.append(recipe_dict)
-
-    # Return the list of serialized recipe dictionaries as a JSON response
-    return recipe_list
-
-@router.get("/lunch/count")
-async def get_dinner_recipes_count(db: Session = Depends(get_db)):
-    # Retrieve all Recipe objects where collection is equal to "dinner"
-    recipes = db.query(Recipe).filter(Recipe.collection == "lunch").all()
-
-    # Return the count of the recipes where collection is equal to "dinner"
-    return len(recipes)
+#     # Return the count of the recipes where collection is equal to "dinner"
+#     return len(recipes)
 
 
-@router.get("/breakfast")
-async def get_dinner_recipes(db: Session = Depends(get_db)):
-    # Retrieve all Recipe objects where collection is equal to "dinner"
-    recipes = db.query(Recipe).filter(Recipe.collection == "lunch").all()
+# @router.get("/supper")
+# async def get_dinner_recipes(db: Session = Depends(get_db)):
+#     # Retrieve all Recipe objects where collection is equal to "dinner"
+#     recipes = db.query(Recipe).filter(Recipe.collection == "supper").all()
 
-    # Create a list to hold serialized recipe dictionaries
-    recipe_list = []
+#     # Create a list to hold serialized recipe dictionaries
+#     recipe_list = []
 
-    # Loop through each recipe
-    for recipe in recipes:
-        # Retrieve the Recipe_Ingredient objects for the recipe
-        recipe_ingredients = recipe.ingredients
+#     # Loop through each recipe
+#     for recipe in recipes:
+#         # Retrieve the Recipe_Ingredient objects for the recipe
+#         recipe_ingredients = recipe.ingredients
 
-        # Retrieve the Step objects for the recipe
-        steps = recipe.steps
+#         # Retrieve the Step objects for the recipe
+#         steps = recipe.steps
 
-        # Serialize the Recipe object and its related objects to a dictionary
-        recipe_dict = recipe.__dict__
-        recipe_dict['ingredients'] = [ri.ingredient.__dict__ for ri in recipe_ingredients]
-        recipe_dict['steps'] = [step.__dict__ for step in steps]
+#         # Serialize the Recipe object and its related objects to a dictionary
+#         recipe_dict = recipe.__dict__
+#         recipe_dict['ingredients'] = [ri.ingredient.__dict__ for ri in recipe_ingredients]
+#         recipe_dict['steps'] = [step.__dict__ for step in steps]
 
-        # Remove unwanted attributes from the dictionary
-        del recipe_dict['_sa_instance_state']
+#         # Remove unwanted attributes from the dictionary
+#         del recipe_dict['_sa_instance_state']
 
-        # Append the serialized recipe dictionary to the list
-        recipe_list.append(recipe_dict)
+#         # Append the serialized recipe dictionary to the list
+#         recipe_list.append(recipe_dict)
 
-    # Return the list of serialized recipe dictionaries as a JSON response
-    return recipe_list
+#     # Return the list of serialized recipe dictionaries as a JSON response
+#     return recipe_list
 
-@router.get("/breakfast/count")
-async def get_dinner_recipes_count(db: Session = Depends(get_db)):
-    # Retrieve all Recipe objects where collection is equal to "dinner"
-    recipes = db.query(Recipe).filter(Recipe.collection == "breakfast").all()
+# @router.get("/supper/count")
+# async def get_dinner_recipes_count(db: Session = Depends(get_db)):
+#     # Retrieve all Recipe objects where collection is equal to "dinner"
+#     recipes = db.query(Recipe).filter(Recipe.collection == "supper").all()
 
-    # Return the count of the recipes where collection is equal to "dinner"
-    return len(recipes)
+#     # Return the count of the recipes where collection is equal to "dinner"
+#     return len(recipes)
+
+
+# @router.get("/lunch")
+# async def get_dinner_recipes(db: Session = Depends(get_db)):
+#     # Retrieve all Recipe objects where collection is equal to "dinner"
+#     recipes = db.query(Recipe).filter(Recipe.collection == "lunch").all()
+
+#     # Create a list to hold serialized recipe dictionaries
+#     recipe_list = []
+
+#     # Loop through each recipe
+#     for recipe in recipes:
+#         # Retrieve the Recipe_Ingredient objects for the recipe
+#         recipe_ingredients = recipe.ingredients
+
+#         # Retrieve the Step objects for the recipe
+#         steps = recipe.steps
+
+#         # Serialize the Recipe object and its related objects to a dictionary
+#         recipe_dict = recipe.__dict__
+#         recipe_dict['ingredients'] = [ri.ingredient.__dict__ for ri in recipe_ingredients]
+#         recipe_dict['steps'] = [step.__dict__ for step in steps]
+
+#         # Remove unwanted attributes from the dictionary
+#         del recipe_dict['_sa_instance_state']
+
+#         # Append the serialized recipe dictionary to the list
+#         recipe_list.append(recipe_dict)
+
+#     # Return the list of serialized recipe dictionaries as a JSON response
+#     return recipe_list
+
+# @router.get("/lunch/count")
+# async def get_dinner_recipes_count(db: Session = Depends(get_db)):
+#     # Retrieve all Recipe objects where collection is equal to "dinner"
+#     recipes = db.query(Recipe).filter(Recipe.collection == "lunch").all()
+
+#     # Return the count of the recipes where collection is equal to "dinner"
+#     return len(recipes)
+
+
+# @router.get("/breakfast")
+# async def get_dinner_recipes(db: Session = Depends(get_db)):
+#     # Retrieve all Recipe objects where collection is equal to "dinner"
+#     recipes = db.query(Recipe).filter(Recipe.collection == "lunch").all()
+
+#     # Create a list to hold serialized recipe dictionaries
+#     recipe_list = []
+
+#     # Loop through each recipe
+#     for recipe in recipes:
+#         # Retrieve the Recipe_Ingredient objects for the recipe
+#         recipe_ingredients = recipe.ingredients
+
+#         # Retrieve the Step objects for the recipe
+#         steps = recipe.steps
+
+#         # Serialize the Recipe object and its related objects to a dictionary
+#         recipe_dict = recipe.__dict__
+#         recipe_dict['ingredients'] = [ri.ingredient.__dict__ for ri in recipe_ingredients]
+#         recipe_dict['steps'] = [step.__dict__ for step in steps]
+
+#         # Remove unwanted attributes from the dictionary
+#         del recipe_dict['_sa_instance_state']
+
+#         # Append the serialized recipe dictionary to the list
+#         recipe_list.append(recipe_dict)
+
+#     # Return the list of serialized recipe dictionaries as a JSON response
+#     return recipe_list
+
+# @router.get("/breakfast/count")
+# async def get_dinner_recipes_count(db: Session = Depends(get_db)):
+#     # Retrieve all Recipe objects where collection is equal to "dinner"
+#     recipes = db.query(Recipe).filter(Recipe.collection == "breakfast").all()
+
+#     # Return the count of the recipes where collection is equal to "dinner"
+#     return len(recipes)
+
+
+
+@router.get("/count")
+async def get_recipe_count(db: Session = Depends(get_db)):
+    # Retrieve all Recipe objects
+    recipes = db.query(Recipe).all()
+
+    # Count the recipes for each collection
+    dinner_count = sum(1 for recipe in recipes if recipe.collection == "dinner")
+    supper_count = sum(1 for recipe in recipes if recipe.collection == "supper")
+    lunch_count = sum(1 for recipe in recipes if recipe.collection == "lunch")
+    breakfast_count = sum(1 for recipe in recipes if recipe.collection == "breakfast")
+
+    # Return the counts for each collection
+    return {
+        "dinner_count": dinner_count,
+        "supper_count": supper_count,
+        "lunch_count": lunch_count,
+        "breakfast_count": breakfast_count
+    }
+
+
+# POST request to add ingredient to shopping list
+@router.post("/shopping/{ingredient_id}")
+def add_to_shopping_list(ingredient_id: int, db: Session = Depends(get_db), current_user = Depends(oauth2.get_current_user)):
+    # Look up the Ingredient object in the database
+    ingredient = db.query(Ingredient).get(ingredient_id)
+
+    # If the ingredient doesn't exist, raise an HTTPException
+    if not ingredient:
+        raise HTTPException(status_code=404, detail=f"Ingredient with id {ingredient_id} not found")
+
+    # Create a new Shopping object
+    new_shopping_item = Shopping(
+        ingredient_id=ingredient_id,
+        user_id=current_user.id,
+    )
+
+    # Add the new Shopping object to the session
+    db.add(new_shopping_item)
+    db.commit()
+    db.refresh(new_shopping_item)
+
+    # Return the newly created Shopping object
+    return new_shopping_item
+
+# GET request to get ingredients in user's shopping list
+@router.get("/shopping")
+def get_shopping_list(db: Session = Depends(get_db), current_user = Depends(oauth2.get_current_user)):
+    # Retrieve all Shopping objects for the current user
+    shopping_list = db.query(Shopping).filter_by(user_id=current_user.id).all()
+
+    # Create an empty list to hold the ingredients
+    ingredients = []
+
+    # Map the ingredient_id foreign key to the ingredients table
+    for item in shopping_list:
+        ingredient = db.query(Ingredient).get(item.ingredient_id)
+        if ingredient:
+            # Append the ingredient to the list
+            ingredients.append(ingredient)
+
+    # Return the list of ingredients in the shopping list
+    return ingredients
