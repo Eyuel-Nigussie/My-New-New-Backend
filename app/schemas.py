@@ -59,6 +59,8 @@ class IngredientCreate(BaseModel):
     calory: float
     user_id: int = None
 
+    class Config:
+     orm_mode = True
 class RecipeIngredientCreate(BaseModel):
     ingredient_id: int
     quantity: float
