@@ -12,7 +12,8 @@ class User(Base):
     email = Column(String, nullable=False, unique=True)
     password = Column(String, nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
-
+    
+    preferences = relationship("UserPreference", back_populates="user", cascade="all, delete")
 #2
 class Recipe(Base):
     __tablename__ ='recipes'
@@ -26,7 +27,8 @@ class Recipe(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     
     steps = relationship("Step", backref="recipes", cascade='all, delete-orphan')
-    ingredients = relationship("Recipe_Ingredient", back_populates="recipe")
+    ingredients = relationship("Recipe_Ingredient", back_populates="recipe", cascade="all, delete")
+    preferences = relationship("RecipePreference", back_populates="recipe", cascade="all, delete")
 #3  
 class Ingredient(Base):
     __tablename__ = 'ingredients'
@@ -39,7 +41,7 @@ class Ingredient(Base):
     calory = Column(Float)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
         
-    recipe_ingredients = relationship("Recipe_Ingredient", back_populates="ingredient")
+    recipe_ingredients = relationship("Recipe_Ingredient", back_populates="ingredient", cascade="all, delete")
 #4
 class Shopping(Base):
     __tablename__ ='shopping'
@@ -54,6 +56,9 @@ class Preference(Base):
 
     id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String, nullable=False)
+
+    recipes = relationship("RecipePreference", back_populates="preference", cascade="all, delete")
+    users = relationship("UserPreference", back_populates="preference", cascade="all, delete")
 #6
 class Restriction(Base):
     __tablename__ = 'restrictions'
@@ -82,16 +87,7 @@ class Recipe_Ingredient(Base):
     quantity = Column(Float)
     unit = Column(String)
 
-#9 J
-class user_preference(Base):
-    __tablename__ = 'user_preferences'
-
-
-    id = Column(Integer, primary_key=True, nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    preference_id = Column(Integer, ForeignKey("preferences.id", ondelete="CASCADE"), nullable=False)
-
-#10 j
+#10 
 class user_restriction(Base):
     __tablename__ = 'user_restrictions'
 
@@ -101,3 +97,20 @@ class user_restriction(Base):
     restriction_id = Column(Integer, ForeignKey("restrictions.id", ondelete="CASCADE"), nullable=False)
 
 #11
+class RecipePreference(Base):
+    __tablename__ = 'recipe_preferences'
+
+    recipe_id = Column(Integer, ForeignKey('recipes.id', ondelete='CASCADE'), primary_key=True)
+    preference_id = Column(Integer, ForeignKey('preferences.id', ondelete='CASCADE'), primary_key=True)
+
+    preference = relationship("Preference", back_populates="recipes", cascade="all, delete")
+    recipe = relationship("Recipe", back_populates="preferences", cascade="all, delete")
+
+
+class UserPreference(Base):
+    __tablename__ = 'user_preferences'
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
+    preference_id = Column(Integer, ForeignKey('preferences.id', ondelete='CASCADE'), primary_key=True)
+
+    user = relationship("User", back_populates="preferences", cascade="all, delete")
+    preference = relationship("Preference", back_populates="users", cascade="all, delete")
