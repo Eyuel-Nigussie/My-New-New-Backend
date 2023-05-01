@@ -1,5 +1,5 @@
 from .. import models, schemas, utils, oauth2
-from fastapi import status, HTTPException, Depends, APIRouter
+from fastapi import status, HTTPException, Depends, APIRouter, FastAPI, WebSocket
 from sqlalchemy.orm import Session
 from fastapi.params import Body
 from ..database import engine , get_db
@@ -7,7 +7,7 @@ from typing import List
 from pydantic import BaseModel
 
 
-from ..models import Recipe, Recipe_Ingredient, Ingredient, Step, Shopping, Preference
+from ..models import Recipe, Recipe_Ingredient, Ingredient, Step, Shopping, Preference, UserPreference
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -34,7 +34,7 @@ class RecipeCreate(BaseModel):
 
 
 
-
+app = FastAPI()
 
 router = APIRouter(
    prefix="/recipes",
@@ -156,7 +156,7 @@ def create_recipe(recipe_data: dict = Body(...), db: Session = Depends(get_db), 
             recipe=new_recipe,
             ingredient=ingredient,
             quantity=recipe_data['quantities'][i],
-            unit=recipe_data['units'][i],
+            unit=recipe_data['units'][i]
         )
 
         # Add the new Recipe_Ingredient object to the session
@@ -387,6 +387,32 @@ def add_to_shopping_list(ingredient_id: int, db: Session = Depends(get_db), curr
     # Return the newly created Shopping object
     return new_shopping_item
 
+
+#websocket to get ingredients in user's shopping list
+@app.websocket('/ws/shopping')
+async def websocket_get_shopping_list(websocket: WebSocket, db: Session = Depends(get_db)):
+    await websocket.accept()
+
+    # Retrieve all Shopping objects for the current user
+    print('hello')
+    shopping_list = db.query(models.Shopping).filter_by(user_id=1).all()
+
+    # Create an empty list to hold the ingredients
+    ingredients = []
+
+    # Map the ingredient_id foreign key to the ingredients table
+    for item in shopping_list:
+        ingredient = db.query(models.Ingredient).get(item.ingredient_id)
+        if ingredient:
+            # Append the ingredient to the list
+            ingredients.append(ingredient)
+
+    # Send the list of ingredients in the shopping list over the websocket
+    await websocket.send_json({"ingredients": [schemas.Ingredient.from_orm(ing).dict() for ing in ingredients]})
+
+
+
+
 # GET request to get ingredients in user's shopping list
 @router.get("/shopping")
 def get_shopping_list(db: Session = Depends(get_db), current_user = Depends(oauth2.get_current_user)):
@@ -415,19 +441,126 @@ async def create_preferences(preferences: List[str] = Body(...), db: Session = D
     # Create a list of Preference objects from the incoming data
     preference_objects = [models.Preference(name=name) for name in preferences]
 
-    # Add the preference objects to the database
     db.add_all(preference_objects)
     db.commit()
 
     # Create a list of UserPreference objects to link the preferences to the user
     user_preference_objects = [models.UserPreference(user=user, preference=preference) for preference in preference_objects]
 
-    # Add the user preference objects to the database
     db.add_all(user_preference_objects)
     db.commit()
 
-    # Return a JSON response indicating success
     return {"success": True}
 
 
-# Delete request to delete to shopping list
+#get recipes with user preference
+# @router.get("/suggestion")
+# async def get_recipes(db: Session = Depends(get_db), current_user = Depends(oauth2.get_current_user)):
+#     # Retrieve the user's preferences
+#     preferences = db.query(UserPreference.preference_id).filter(UserPreference.user_id == current_user.id).all()
+
+#     # Extract the preference IDs into a list
+#     preference_ids = [p[0] for p in preferences]
+
+#     # Retrieve the recipes that have category matching with the user's preferences
+#     recipes = db.query(Recipe).filter(Recipe.collection.in_(preference_ids)).all()
+
+#     # Create a list to hold serialized recipe dictionaries
+#     recipe_list = []
+
+#     # Loop through each recipe
+#     for recipe in recipes:
+#         # Retrieve the Recipe_Ingredient objects for the recipe
+#         recipe_ingredients = recipe.ingredients
+
+#         # Retrieve the Step objects for the recipe
+#         steps = recipe.steps
+
+#         # Serialize the Recipe object and its related objects to a dictionary
+#         recipe_dict = recipe.__dict__
+#         recipe_dict['ingredients'] = [ri.ingredient.__dict__ for ri in recipe_ingredients]
+#         recipe_dict['steps'] = [step.__dict__ for step in steps]
+
+#         # Remove unwanted attributes from the dictionary
+#         del recipe_dict['_sa_instance_state']
+
+#         # Append the serialized recipe dictionary to the list
+#         recipe_list.append(recipe_dict)
+
+#     # Return the list of serialized recipe dictionaries as a JSON response
+#     return recipe_list
+
+# @router.get("/suggestion")
+# async def get_recipes(db: Session = Depends(get_db), current_user = Depends(oauth2.get_current_user)):
+#     # Retrieve the user's preferences
+#     preferences = [p.name for p in current_user.preferences]
+
+#     # Retrieve the recipes that match the user's preferences
+#     recipes = db.query(Recipe).filter(Recipe.collection.in_(preferences)).all()
+
+#     # Serialize the recipe objects and their related objects to a list of dictionaries
+#     recipe_list = []
+#     for recipe in recipes:
+#         recipe_dict = recipe.__dict__
+#         recipe_dict['ingredients'] = [ri.ingredient.__dict__ for ri in recipe.ingredients]
+#         recipe_dict['steps'] = [step.__dict__ for step in recipe.steps]
+#         del recipe_dict['_sa_instance_state']
+#         recipe_list.append(recipe_dict)
+
+#     # Return the list of serialized recipe dictionaries as a JSON response
+#     return recipe_list
+
+@router.get("/suggestion")
+async def get_recipes_by_preferences(db: Session = Depends(get_db), current_user = Depends(oauth2.get_current_user)):
+    # Retrieve the user from the database
+    user = db.query(models.User).filter(models.User.id == current_user.id).first()
+
+    # Retrieve the user's preferences
+    preferences = [up.preference for up in user.preferences]
+
+    # Retrieve the recipes that match the user's preferences
+    recipes = db.query(models.Recipe).filter(models.Recipe.collection.in_([p.name for p in preferences])).all()
+
+    # Create a list to hold serialized recipe dictionaries
+    recipe_list = []
+
+   # Loop through each recipe
+    for recipe in recipes:
+        # Retrieve the Recipe_Ingredient objects for the recipe
+        recipe_ingredients = recipe.ingredients
+
+        # Retrieve the Step objects for the recipe
+        steps = recipe.steps
+
+        # Serialize the Recipe object and its related objects to a dictionary
+        recipe_dict = recipe.__dict__
+        recipe_dict['ingredients'] = [ri.ingredient.__dict__ for ri in recipe_ingredients]
+        recipe_dict['steps'] = [step.__dict__ for step in steps]
+
+        # Remove unwanted attributes from the dictionary
+        del recipe_dict['_sa_instance_state']
+
+        # Append the serialized recipe dictionary to the list
+        recipe_list.append(recipe_dict)
+
+    # Return the list of serialized recipe dictionaries as a JSON response
+    return recipe_list
+
+
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
